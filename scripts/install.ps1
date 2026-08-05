@@ -265,9 +265,17 @@ if (-not (Test-Path $localSh) -or (Get-Item $localSh).Length -eq 0) {
 }
 
 # Translate C:\Users\…\revue-install.sh into /mnt/c/Users/…, so WSL can read it.
-$wslSh = (& wsl.exe -d $distro wslpath -a "$localSh") | Select-Object -First 1
-if ($LASTEXITCODE -ne 0 -or -not $wslSh) {
-    Write-Err "Could not translate the installer path into WSL2."
+#
+# Forward slashes, not backslashes: crossing the wsl.exe boundary a backslash is
+# eaten as an escape, so "C:\Users\<user>\AppData\…" arrived at wslpath as
+# "C:Users<user>AppData…" and the translation failed. wslpath accepts either
+# separator, so normalising first is the fix. (Found on real Windows, 2026-07-30.)
+$winPath = $localSh -replace '\\', '/'
+$wslSh = (& wsl.exe -d $distro wslpath -a "$winPath" 2>&1) | Select-Object -First 1
+if ($LASTEXITCODE -ne 0 -or -not $wslSh -or $wslSh -notmatch '^/') {
+    Write-Err "Could not translate the installer path into WSL2 (got: $wslSh)."
+    Write-Host "Install directly inside WSL2 instead — run 'wsl', then:"
+    Write-Host "  curl -fsSL $InstallShUrl -o /tmp/revue-install.sh && bash /tmp/revue-install.sh"
     Remove-Item $localSh -ErrorAction SilentlyContinue
     exit 1
 }
