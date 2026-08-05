@@ -26,12 +26,14 @@
     # text in a scriptblock — this is the standard PowerShell one-liner idiom.
     & ([scriptblock]::Create((irm https://raw.githubusercontent.com/Revue-sh/revue/main/scripts/install.ps1))) -Key lic_your_key_here
 #>
-# >>> PREVIEW BUILD (REVUE-560/561/564) — NOT the production installer.
-# $InstallShUrl points at the preview repo so the WSL2 bootstrap exercises
-# the NEW install.sh. Delete this repo after testing.
 [CmdletBinding()]
 param(
-    [string]$Key = $env:REVUE_LICENSE_KEY
+    [string]$Key = $env:REVUE_LICENSE_KEY,
+
+    # REVUE-567: consent to run `wsl --install` without prompting. Interactive
+    # runs are asked instead. It is never silent, because it needs admin rights
+    # and forces a reboot — see Install-Wsl2.
+    [switch]$InstallWsl
 )
 
 $ErrorActionPreference = 'Stop'
@@ -51,6 +53,59 @@ function Write-CiFallback {
     Write-Host ""
     Write-Host "Alternative: run Revue in your CI pipeline via the revue-ci integration"
     Write-Host "(github/gitlab/bitbucket) instead. See $InstallPageUrl"
+}
+
+# `wsl --install` enables Windows features, so it needs an elevated shell.
+# Detecting that ourselves turns an obscure inner failure into a clear
+# instruction (REVUE-567 AC4).
+function Test-Administrator {
+    try {
+        $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+        return ([Security.Principal.WindowsPrincipal]$id).IsInRole(
+            [Security.Principal.WindowsBuiltInRole]::Administrator)
+    } catch {
+        # Non-Windows pwsh has no such identity model. The caller already
+        # refused non-Windows before reaching here; treat unknown as "not
+        # elevated" so we never attempt a privileged operation on a guess.
+        return $false
+    }
+}
+
+# Install WSL2 on the user's behalf — with consent, never silently.
+#
+# This CANNOT be seamless, and pretending otherwise would mislead:
+#   * it needs administrator rights;
+#   * it enables Windows features and forces a REBOOT;
+#   * after that reboot the Revue install is still not done — the user must
+#     run this installer again.
+# So the honest contract is: ask, run it, then say plainly what happens next
+# and exit non-zero, because the install did NOT complete.
+function Install-Wsl2 {
+    if (-not (Test-Administrator)) {
+        Write-Err "Installing WSL2 requires administrator rights, and this shell is not elevated."
+        Write-Host "Close this window, open PowerShell as Administrator (right-click > 'Run as administrator'),"
+        Write-Host "and run this installer again. Or install WSL2 yourself with:"
+        Write-Host "  wsl --install"
+        Write-CiFallback
+        exit 1
+    }
+
+    Write-Host "Installing WSL2 (this enables Windows features and will require a reboot)…"
+    & wsl.exe --install
+    $wslExit = $LASTEXITCODE
+    if ($wslExit -ne 0) {
+        Write-Err "'wsl --install' failed (exit code $wslExit)."
+        Write-Host "Install WSL2 manually, then re-run this installer:"
+        Write-Host "  wsl --install"
+        Write-CiFallback
+        exit $wslExit
+    }
+
+    # Deliberately non-zero: WSL2 is installed, Revue is not.
+    Write-Host ""
+    Write-Ok "WSL2 installed."
+    Write-Host "Reboot this machine, then re-run this installer to finish installing Revue."
+    exit 1
 }
 
 # PowerShell 5.1 (Desktop edition) leaves $IsWindows undefined, and Desktop only
@@ -118,8 +173,29 @@ if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
     Write-Err "WSL is not available on this machine."
     Write-Host $Wsl2Guidance
     Write-Host ""
+
+    # REVUE-567: offer to do it rather than hand the user homework. Consent is
+    # required — explicit via -InstallWsl, or asked here. Never silent.
+    if ($InstallWsl) {
+        Install-Wsl2
+    }
+
+    # Read-Host needs a console. Under `irm | iex` there is one; under full
+    # automation there may not be, so a failed read is treated as "no" rather
+    # than as consent.
+    $answer = ""
+    try {
+        $answer = Read-Host "Install WSL2 now? This needs admin rights and will require a reboot [y/N]"
+    } catch {
+        $answer = ""
+    }
+    if ($answer -match '^(y|yes)$') {
+        Install-Wsl2
+    }
+
     Write-Host "Run this in an elevated PowerShell, reboot if prompted, then re-run this installer:"
     Write-Host "  wsl --install"
+    Write-Host "(or re-run this installer with -InstallWsl to have it done for you)"
     Write-CiFallback
     exit 1
 }
