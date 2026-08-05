@@ -108,6 +108,34 @@ function Install-Wsl2 {
     exit 1
 }
 
+# Offer the WSL2 install at either dead end.
+#
+# Both "wsl.exe is absent" and "wsl.exe exists but there is no v2 distro" are
+# resolved by the same command, and both used to end in guidance the user had to
+# act on themselves. Real-Windows testing showed the SECOND is the common case —
+# modern Windows ships wsl.exe, so a machine with no distro never reached the
+# offer when it lived only in the first branch.
+#
+# Returns only if the user declines; Install-Wsl2 exits otherwise.
+function Invoke-Wsl2InstallOffer {
+    if ($InstallWsl) {
+        Install-Wsl2
+    }
+
+    # Read-Host needs a console. Under `irm | iex` there is one; under full
+    # automation there may not be, so a failed read is treated as "no" rather
+    # than as consent — never reboot a machine on a guess.
+    $answer = ""
+    try {
+        $answer = Read-Host "Install WSL2 now? This needs admin rights and will require a reboot [y/N]"
+    } catch {
+        $answer = ""
+    }
+    if ($answer -match '^(y|yes)$') {
+        Install-Wsl2
+    }
+}
+
 # PowerShell 5.1 (Desktop edition) leaves $IsWindows undefined, and Desktop only
 # ever runs on Windows — so an undefined value means Windows, not "unknown".
 function Test-OnWindows {
@@ -174,24 +202,8 @@ if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
     Write-Host $Wsl2Guidance
     Write-Host ""
 
-    # REVUE-567: offer to do it rather than hand the user homework. Consent is
-    # required — explicit via -InstallWsl, or asked here. Never silent.
-    if ($InstallWsl) {
-        Install-Wsl2
-    }
-
-    # Read-Host needs a console. Under `irm | iex` there is one; under full
-    # automation there may not be, so a failed read is treated as "no" rather
-    # than as consent.
-    $answer = ""
-    try {
-        $answer = Read-Host "Install WSL2 now? This needs admin rights and will require a reboot [y/N]"
-    } catch {
-        $answer = ""
-    }
-    if ($answer -match '^(y|yes)$') {
-        Install-Wsl2
-    }
+    # REVUE-567: offer to do it rather than hand the user homework.
+    Invoke-Wsl2InstallOffer
 
     Write-Host "Run this in an elevated PowerShell, reboot if prompted, then re-run this installer:"
     Write-Host "  wsl --install"
@@ -207,6 +219,12 @@ if (-not $distro) {
     Write-Err "No WSL version 2 distribution was found."
     Write-Host $Wsl2Guidance
     Write-Host ""
+
+    # The common real-world case: modern Windows ships wsl.exe, so a machine
+    # with no distro lands HERE rather than in the absent-binary branch above.
+    # `wsl --install` installs the default distro, which is what is missing.
+    Invoke-Wsl2InstallOffer
+
     Write-Host "If WSL is installed but you have no distro yet:"
     Write-Host "  wsl --install -d Ubuntu"
     Write-Host "If your distro is still on version 1, upgrade it:"
