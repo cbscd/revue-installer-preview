@@ -175,7 +175,7 @@ function Get-Wsl2DistroName {
 if (-not (Test-OnWindows)) {
     Write-Err "install.ps1 is the Windows entry point, but this is not Windows."
     Write-Host "Use the shell installer instead:"
-    Write-Host "  curl -fsSL $InstallShUrl | bash"
+    Write-Host "  curl -fsSL $InstallShUrl -o /tmp/revue-install.sh && bash /tmp/revue-install.sh"
     exit 1
 }
 
@@ -237,25 +237,57 @@ Write-Ok "Using WSL2 distribution: $distro"
 
 # ── Bootstrap the canonical installer inside WSL2 ────────────────────────────
 # install.sh stays the single implementation — this script is a router, not a
-# second installer. The key is passed as a bash positional so it is never
-# interpolated into the command string.
+# second installer.
+#
+# Download on the WINDOWS side and run the script BY PATH, rather than piping
+# curl into bash inside WSL. Two defects made that necessary, both found on real
+# Windows (2026-07-30):
+#
+#   1. `bash -c '…"$0"…' <url>` did not survive the wsl.exe argument boundary —
+#      curl received nothing and reported "No host part in the URL".
+#   2. `curl … | bash` exits with BASH's status. Given empty input bash exits 0,
+#      so a failed download was reported as a successful install. Checking
+#      $LASTEXITCODE was checking a value that could not reflect the failure.
+#
+# Running `bash <path> --key <value>` uses ordinary argv: nothing to quote
+# through two shells, and the script's own exit code is what we observe.
+$localSh = Join-Path $env:TEMP "revue-install-$PID.sh"
+try {
+    Invoke-WebRequest -Uri $InstallShUrl -OutFile $localSh -UseBasicParsing
+} catch {
+    Write-Err "Failed to download the installer from ${InstallShUrl}: $($_.Exception.Message)"
+    exit 1
+}
+if (-not (Test-Path $localSh) -or (Get-Item $localSh).Length -eq 0) {
+    Write-Err "Downloaded an empty installer from ${InstallShUrl}. Refusing to run it."
+    Remove-Item $localSh -ErrorAction SilentlyContinue
+    exit 1
+}
+
+# Translate C:\Users\…\revue-install.sh into /mnt/c/Users/…, so WSL can read it.
+$wslSh = (& wsl.exe -d $distro wslpath -a "$localSh") | Select-Object -First 1
+if ($LASTEXITCODE -ne 0 -or -not $wslSh) {
+    Write-Err "Could not translate the installer path into WSL2."
+    Remove-Item $localSh -ErrorAction SilentlyContinue
+    exit 1
+}
+
 if ($Key) {
-    $bashCommand = 'curl -fsSL "$0" | bash -s -- --key "$1"'
-    $wslArgs = @('-d', $distro, '--', 'bash', '-c', $bashCommand, $InstallShUrl, $Key)
+    $wslArgs = @('-d', $distro, '--', 'bash', $wslSh, '--key', $Key)
 } else {
-    $bashCommand = 'curl -fsSL "$0" | bash'
-    $wslArgs = @('-d', $distro, '--', 'bash', '-c', $bashCommand, $InstallShUrl)
+    $wslArgs = @('-d', $distro, '--', 'bash', $wslSh)
 }
 
 & wsl.exe @wslArgs
 $innerExit = $LASTEXITCODE
+Remove-Item $localSh -ErrorAction SilentlyContinue
 
 # Never report success the inner installer did not earn.
 if ($innerExit -ne 0) {
     Write-Host ""
     Write-Err "The Revue installer failed inside WSL2 (exit code $innerExit)."
     Write-Host "Re-run it directly in your WSL2 shell to see the full output:"
-    Write-Host "  curl -fsSL $InstallShUrl | bash"
+    Write-Host "  curl -fsSL $InstallShUrl -o /tmp/revue-install.sh && bash /tmp/revue-install.sh"
     exit $innerExit
 }
 
