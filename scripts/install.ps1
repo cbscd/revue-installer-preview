@@ -6,7 +6,7 @@
 .DESCRIPTION
     Revue publishes per-OS Nuitka-compiled wheels for macOS ARM64 and Linux
     x86_64 only. There is NO native Windows wheel, so this script does not
-    install anything on Windows itself — it routes you into WSL2, where your
+    install anything on Windows itself - it routes you into WSL2, where your
     machine reports "linux x86_64" and the real Linux x86_64 build installs and
     runs natively.
 
@@ -23,7 +23,7 @@
 
 .EXAMPLE
     # With a licence key. `iex` cannot forward arguments, so wrap the fetched
-    # text in a scriptblock — this is the standard PowerShell one-liner idiom.
+    # text in a scriptblock - this is the standard PowerShell one-liner idiom.
     & ([scriptblock]::Create((irm https://raw.githubusercontent.com/Revue-sh/revue/main/scripts/install.ps1))) -Key lic_your_key_here
 #>
 [CmdletBinding()]
@@ -32,7 +32,7 @@ param(
 
     # REVUE-567: consent to run `wsl --install` without prompting. Interactive
     # runs are asked instead. It is never silent, because it needs admin rights
-    # and forces a reboot — see Install-Wsl2.
+    # and forces a reboot - see Install-Wsl2.
     [switch]$InstallWsl
 )
 
@@ -71,12 +71,12 @@ function Test-Administrator {
     }
 }
 
-# Install WSL2 on the user's behalf — with consent, never silently.
+# Install WSL2 on the user's behalf - with consent, never silently.
 #
 # This CANNOT be seamless, and pretending otherwise would mislead:
 #   * it needs administrator rights;
 #   * it enables Windows features and forces a REBOOT;
-#   * after that reboot the Revue install is still not done — the user must
+#   * after that reboot the Revue install is still not done - the user must
 #     run this installer again.
 # So the honest contract is: ask, run it, then say plainly what happens next
 # and exit non-zero, because the install did NOT complete.
@@ -90,7 +90,7 @@ function Install-Wsl2 {
         exit 1
     }
 
-    Write-Host "Installing WSL2 (this enables Windows features and will require a reboot)…"
+    Write-Host "Installing WSL2 (this enables Windows features and will require a reboot)..."
     & wsl.exe --install
     $wslExit = $LASTEXITCODE
     if ($wslExit -ne 0) {
@@ -112,7 +112,7 @@ function Install-Wsl2 {
 #
 # Both "wsl.exe is absent" and "wsl.exe exists but there is no v2 distro" are
 # resolved by the same command, and both used to end in guidance the user had to
-# act on themselves. Real-Windows testing showed the SECOND is the common case —
+# act on themselves. Real-Windows testing showed the SECOND is the common case -
 # modern Windows ships wsl.exe, so a machine with no distro never reached the
 # offer when it lived only in the first branch.
 #
@@ -124,7 +124,7 @@ function Invoke-Wsl2InstallOffer {
 
     # Read-Host needs a console. Under `irm | iex` there is one; under full
     # automation there may not be, so a failed read is treated as "no" rather
-    # than as consent — never reboot a machine on a guess.
+    # than as consent - never reboot a machine on a guess.
     $answer = ""
     try {
         $answer = Read-Host "Install WSL2 now? This needs admin rights and will require a reboot [y/N]"
@@ -137,7 +137,7 @@ function Invoke-Wsl2InstallOffer {
 }
 
 # PowerShell 5.1 (Desktop edition) leaves $IsWindows undefined, and Desktop only
-# ever runs on Windows — so an undefined value means Windows, not "unknown".
+# ever runs on Windows - so an undefined value means Windows, not "unknown".
 function Test-OnWindows {
     if ($null -ne $IsWindows) { return [bool]$IsWindows }
     return $true
@@ -163,7 +163,7 @@ function Get-Wsl2DistroName {
     foreach ($line in ($raw -split "`r?`n")) {
         $clean = ($line -replace "`0", '').Trim()
         if (-not $clean) { continue }
-        # "* Ubuntu    Running    2" — default distro carries a leading asterisk.
+        # "* Ubuntu    Running    2" - default distro carries a leading asterisk.
         if ($clean -match '^\*?\s*(?<name>\S+)\s+\S+\s+(?<version>\d+)\s*$') {
             if ($Matches['version'] -eq '2') { return $Matches['name'] }
         }
@@ -171,7 +171,7 @@ function Get-Wsl2DistroName {
     return $null
 }
 
-# ── Guard: this script is Windows-only ───────────────────────────────────────
+# -- Guard: this script is Windows-only ---------------------------------------
 if (-not (Test-OnWindows)) {
     Write-Err "install.ps1 is the Windows entry point, but this is not Windows."
     Write-Host "Use the shell installer instead:"
@@ -179,9 +179,9 @@ if (-not (Test-OnWindows)) {
     exit 1
 }
 
-# ── Guard: Windows on ARM has no route, not even through WSL2 ────────────────
+# -- Guard: Windows on ARM has no route, not even through WSL2 ----------------
 # WSL2 on an ARM host reports linux aarch64, and Revue publishes no aarch64
-# wheel — so sending an ARM user through WSL2 would strand them one step later.
+# wheel - so sending an ARM user through WSL2 would strand them one step later.
 $arch = $env:PROCESSOR_ARCHITECTURE
 if (-not $arch) { $arch = '' }
 if ($arch -match 'ARM64') {
@@ -196,7 +196,7 @@ Write-Host "Revue has no native Windows build. Installing through WSL2, where th
 Write-Host "Linux x86_64 build runs natively."
 Write-Host ""
 
-# ── Guard: WSL must be present ───────────────────────────────────────────────
+# -- Guard: WSL must be present -----------------------------------------------
 if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
     Write-Err "WSL is not available on this machine."
     Write-Host $Wsl2Guidance
@@ -212,7 +212,7 @@ if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
     exit 1
 }
 
-# ── Guard: a version-2 distro must exist ─────────────────────────────────────
+# -- Guard: a version-2 distro must exist -------------------------------------
 # WSL1 does not provide the Linux kernel ABI the compiled wheel targets.
 $distro = Get-Wsl2DistroName
 if (-not $distro) {
@@ -235,17 +235,17 @@ if (-not $distro) {
 
 Write-Ok "Using WSL2 distribution: $distro"
 
-# ── Bootstrap the canonical installer inside WSL2 ────────────────────────────
-# install.sh stays the single implementation — this script is a router, not a
+# -- Bootstrap the canonical installer inside WSL2 ----------------------------
+# install.sh stays the single implementation - this script is a router, not a
 # second installer.
 #
 # Download on the WINDOWS side and run the script BY PATH, rather than piping
 # curl into bash inside WSL. Two defects made that necessary, both found on real
 # Windows (2026-07-30):
 #
-#   1. `bash -c '…"$0"…' <url>` did not survive the wsl.exe argument boundary —
+#   1. `bash -c '..."$0"...' <url>` did not survive the wsl.exe argument boundary -
 #      curl received nothing and reported "No host part in the URL".
-#   2. `curl … | bash` exits with BASH's status. Given empty input bash exits 0,
+#   2. `curl ... | bash` exits with BASH's status. Given empty input bash exits 0,
 #      so a failed download was reported as a successful install. Checking
 #      $LASTEXITCODE was checking a value that could not reflect the failure.
 #
@@ -264,17 +264,17 @@ if (-not (Test-Path $localSh) -or (Get-Item $localSh).Length -eq 0) {
     exit 1
 }
 
-# Translate C:\Users\…\revue-install.sh into /mnt/c/Users/…, so WSL can read it.
+# Translate C:\Users\...\revue-install.sh into /mnt/c/Users/..., so WSL can read it.
 #
 # Forward slashes, not backslashes: crossing the wsl.exe boundary a backslash is
-# eaten as an escape, so "C:\Users\<user>\AppData\…" arrived at wslpath as
-# "C:Users<user>AppData…" and the translation failed. wslpath accepts either
+# eaten as an escape, so "C:\Users\<user>\AppData\..." arrived at wslpath as
+# "C:Users<user>AppData..." and the translation failed. wslpath accepts either
 # separator, so normalising first is the fix. (Found on real Windows, 2026-07-30.)
 $winPath = $localSh -replace '\\', '/'
 $wslSh = (& wsl.exe -d $distro wslpath -a "$winPath" 2>&1) | Select-Object -First 1
 if ($LASTEXITCODE -ne 0 -or -not $wslSh -or $wslSh -notmatch '^/') {
     Write-Err "Could not translate the installer path into WSL2 (got: $wslSh)."
-    Write-Host "Install directly inside WSL2 instead — run 'wsl', then:"
+    Write-Host "Install directly inside WSL2 instead - run 'wsl', then:"
     Write-Host "  curl -fsSL $InstallShUrl -o /tmp/revue-install.sh && bash /tmp/revue-install.sh"
     Remove-Item $localSh -ErrorAction SilentlyContinue
     exit 1
